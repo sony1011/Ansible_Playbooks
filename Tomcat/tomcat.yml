@@ -1,0 +1,276 @@
+---
+- name: Download Tomcat9 from tomcat.apache.org
+  hosts: localhost
+  become: yes
+  vars_files:
+    - vars.yaml  
+  tasks:
+   - name: Check tomcat9 folder stats
+     ansible.builtin.stat:
+       path: /opt/tomcat9
+     register: stat_result
+   - name: Download Open JDK
+     apt:
+      name: openjdk-8-jdk-headless
+      update_cache: yes
+      state: present
+   - name:  install net-tools
+     apt:
+      name: net-tools
+      update_cache: yes
+      state: present
+   - name: Find java binary
+     ansible.builtin.stat:
+       path: "/usr/bin/java"
+     register: find_data
+   - name: validate if Java is availble 
+     shell: 
+      java -version
+     when: not find_data.stat.exists
+   - name: Create the group
+     group: 
+      name: www-data
+      state: present
+   - name: Create the user
+     user:
+        name: www-data
+        state: present
+   - name: Download Tomcat using unarchive
+     unarchive:
+       src: "{{download_url}}"
+       dest: /opt/
+       mode: 0755
+       remote_src: yes
+       group: www-data
+       owner: www-data
+     when: not stat_result.stat.exists
+   - name: Find downloaded apache-tomcat folder
+     find: 
+       paths: /opt
+       pattern: "apache-*"
+       file_type: directory
+     register: find_result
+   - name: Move files to the "/opt/{{ tomcat_dir}}" directory
+     shell: mv {{find_result.files[0].path}} /opt/tomcat9
+     when: not stat_result.stat.exists
+   - name: Copy the user role tomcat-users.xml
+     copy:
+        src: tomcat-users.xml
+        dest: /opt/tomcat9/conf/tomcat-users.xml
+   - name: Copy Sample War file
+     copy:
+       src: sample.war
+       dest: /opt/tomcat9/webapps/sample.war
+       remote_src: yes
+   - name: get current date
+     set_fact: bkpdate= "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+   - name: Create directory with date in time
+     file: 
+       path: "/home/tomcat/{{ bkpdate }}"
+       state: directory
+       mode: 0755
+   - name: backup war
+     shell: "cp /opt/tomcat9/webapps/sample.war /home/tomcat/{{ bkpdate }}/"
+   - name: Creating a service file
+     copy: 
+      content: |-
+        [Unit]
+        Description=Tomcat Service
+        Requires=network.target
+        After=network.target
+        [Service]
+        Type=forking
+        User=www-data
+        Grooup=www-data
+        Environment="CATALINA_PID=/opt/tomcat9/logs/tomcat.pid"
+        Environment="CATALINA_BASE=/opt/tomcat9"
+        Environment="CATALINA_HOME=/opt/tomcat9"
+        Environment="CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC"
+        ExecStart=/opt/tomcat9/bin/startup.sh
+        ExecStop=/opt/tomcat9/bin/shutdown.sh
+        Restart=on-abnormal
+        [Install]
+        WantedBy=multi-user.target
+      dest: /etc/systemd/system/tomcat.service
+     notify:
+       - Reload SystemD
+       - Restart tomcat        
+   - name: copy manager context.xml
+     copy:
+        src: context.xml
+        dest: /opt/tomcat9/webapps/manager/META-INF
+        remote_src: yes
+     notify:
+       - Reload SystemD
+       - Restart tomcat
+   - name: copy host manager context.xml
+     copy:
+        src: hostmanager-context.xml
+        dest: /opt/tomcat9/webapps/host-manager/META-INF
+        remote_src: yes
+     notify: 
+       - Reload SystemD
+       - Restart tomcat
+   - name: check if tomcat is running
+     shell: jps | grep Bootstrap | cut -d " " -f1
+     register : jps_result
+   - name: restart tomcat
+     systemd:
+        name: tomcat
+        enabled: yes
+        state: started
+     when: jps_result.stdout == ""
+ 
+
+  handlers:
+    - name: Reload SystemD 
+      systemd:
+        daemon-reload: yes
+    - name: Restart tomcat 
+      systemd:
+        name: tomcat
+        enabled: yes
+        state: started
+        
+        
+        
+=======================================================
+
+---
+- hosts: localhost
+  become: yes
+  tasks:
+   - name: Check tomcat9 folder stats
+     ansible.builtin.stat:
+       path: /opt/tomcat9
+     register: stat_result
+   - name: Download Open JDK
+     apt:
+      name: openjdk-8-jdk-headless
+      update_cache: yes
+      state: present
+   - name:  install net-tools
+     apt:
+      name: net-tools
+      update_cache: yes
+      state: present
+   - name: Find java binary
+     ansible.builtin.stat:
+       path: "/usr/bin/java"
+     register: find_data
+   - name: validate if Java is availble 
+     shell: 
+      java -version
+     when: not find_data.stat.exists
+   - name: Create the group
+     group: 
+      name: www-data
+      state: present
+   - name: Create the user
+     user:
+        name: www-data
+        state: present
+
+   - name: Download Tomcat
+     get_url:  
+       url: https://dlcdn.apache.org/tomcat/tomcat-9/v9.0.70/bin/apache-tomcat-9.0.70.tar.gz
+       dest: /tmp/apache-tomcat-9.0.70.tar.gz
+
+   - name: Extract archive
+     unarchive:  
+      src: 
+      dest: /opt/
+      mode: 0755
+      remote_src: yes
+      group: www-data
+      owner: www-data
+     when: not stat_result.stat.exists
+
+   - name: Find downloaded apache-tomcat folder
+     find: 
+       paths: /opt
+       pattern: "apache-*"
+       file_type: directory
+     register: find_result
+   - name: Move files to the "/opt/{{ tomcat_dir}}" directory
+     shell: mv {{find_result.files[0].path}} /opt/tomcat9
+     when: not stat_result.stat.exists
+   - name: Copy the user role tomcat-users.xml
+     copy:
+        src: tomcat-users.xml
+        dest: /opt/tomcat9/conf/tomcat-users.xml
+   - name: Copy Sample War file
+     copy:
+       src: sample.war
+       dest: /opt/tomcat9/webapps/sample.war
+       remote_src: yes
+   - name: get current date
+     set_fact: bkpdate= "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+   - name: Create directory with date in time
+     file: 
+       path: "/home/tomcat/{{ bkpdate }}"
+       state: directory
+       mode: 0755
+   - name: backup war
+     shell: "cp /opt/tomcat9/webapps/sample.war /home/tomcat/{{ bkpdate }}/"
+   - name: Creating a service file
+     copy: 
+      content: |-
+        [Unit]
+        Description=Tomcat Service
+        Requires=network.target
+        After=network.target
+        [Service]
+        Type=forking
+        User=www-data
+        Grooup=www-data
+        Environment="CATALINA_PID=/opt/tomcat9/logs/tomcat.pid"
+        Environment="CATALINA_BASE=/opt/tomcat9"
+        Environment="CATALINA_HOME=/opt/tomcat9"
+        Environment="CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC"
+        ExecStart=/opt/tomcat9/bin/startup.sh
+        ExecStop=/opt/tomcat9/bin/shutdown.sh
+        Restart=on-abnormal
+        [Install]
+        WantedBy=multi-user.target
+      dest: /etc/systemd/system/tomcat.service
+     notify:
+       - Reload SystemD
+       - Restart tomcat        
+   - name: copy manager context.xml
+     copy:
+        src: context.xml
+        dest: /opt/tomcat9/webapps/manager/META-INF
+        remote_src: yes
+     notify:
+       - Reload SystemD
+       - Restart tomcat
+   - name: copy host manager context.xml
+     copy:
+        src: hostmanager-context.xml
+        dest: /opt/tomcat9/webapps/host-manager/META-INF
+        remote_src: yes
+     notify: 
+       - Reload SystemD
+       - Restart tomcat
+   - name: check if tomcat is running
+     shell: jps | grep Bootstrap | cut -d " " -f1
+     register : jps_result
+   - name: restart tomcat
+     systemd:
+        name: tomcat
+        enabled: yes
+        state: started
+     when: jps_result.stdout == ""
+
+
+
+  handlers:
+    - name: Reload SystemD
+      systemd:
+        daemon-reload: yes
+    - name: Restart tomcat
+      systemd:
+        name: tomcat
+        enabled: yes
+        state: started
